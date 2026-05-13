@@ -33,7 +33,7 @@ import sounddevice as sd
 from lpc_audio import load_wav
 
 SILENCE_MS = 60
-_DEFAULT_DIR = Path(__file__).parent.parent / "vocab_pcm"
+_DEFAULT_DIR = Path(__file__).parent / "vocab_pcm"
 
 
 @dataclass(frozen=True)
@@ -252,7 +252,8 @@ def main() -> None:
 
     try:
         loaded = load_pcm_dir(Path(args.dir))
-        print(f"Loaded {loaded} WAV word(s) from {args.dir}")
+        if args.words:
+            print(f"Loaded {loaded} WAV word(s) from {args.dir}")
     except Exception as e:
         if args.words and args.words[0].lower() != "list":
             parser.error(f"error loading WAV directory: {e}")

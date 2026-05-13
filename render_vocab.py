@@ -10,7 +10,7 @@ Usage:
   python3 render_vocab.py [--out DIR] [--load PATH ...] [--speed FACTOR]
 
 Options:
-  --out DIR        Output directory (default: ../vocab_pcm/ relative to this script)
+  --out DIR        Output directory (default: ./vocab_pcm/ relative to this script)
   --load PATH      Replace built-ins with a .cpp vocabulary file
   --speed FACTOR   Resample output to emulate speech-clock speed/pitch
 """
@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from lpc_audio import normalize_peak, resample_clock_speed, save_wav, validate_speed
 import tms_speak as tms
 
-_DEFAULT_OUT = Path(__file__).parent.parent / "vocab_pcm"
+_DEFAULT_OUT = Path(__file__).parent / "vocab_pcm"
 
 
 def render_all(out_dir: Path, load_paths: list[str], speed: float) -> None:

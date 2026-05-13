@@ -78,7 +78,7 @@ vocabulary loading rule.
 WAV files. By default it renders at the normal LPC timing. The optional
 `--speed` value resamples the PCM while keeping the WAV sample rate at exactly
 8 kHz, so `--speed 1.03` sounds like LPC playback at 8240 Hz but still produces
-standard 8 kHz PCM.
+standard 8 kHz PCM. The default output directory is `vocab_pcm/` in this repo.
 
 ```sh
 python render_vocab.py --out vocab_pcm
@@ -95,9 +95,11 @@ rate for target systems.
 
 `pcm_speak.py` plays rendered WAV vocabularies by word name, using the WAV
 filename stem as the word. Use it to compare rendered PCM against LPC playback
-or to audition PCM output before loading it into a target system.
+or to audition PCM output before loading it into a target system. By default it
+loads `vocab_pcm/` in this repo.
 
 ```sh
+python pcm_speak.py RED
 python pcm_speak.py --dir vocab_pcm ZERO ONE TWO
 python pcm_speak.py --dir vocab_pcm
 python pcm_speak.py --dir vocab_pcm list 'RE*'
@@ -105,6 +107,17 @@ python pcm_speak.py --dir vocab_pcm list 'RE*'
 
 The PCM player supports the same interactive `list` wildcard filters and tab
 completion for vocabulary words.
+
+`pcm_phrase.py` builds a single WAV phrase from rendered PCM vocabulary words.
+It uses the same filename-stem word names as `pcm_speak.py`, inserts a short
+silence gap between words, and writes one mono WAV file. It also defaults to
+the repo-local `vocab_pcm/` directory.
+
+```sh
+python pcm_phrase.py --out red-alert.wav RED ALERT
+python pcm_phrase.py --dir vocab_pcm --out phrase.wav ZERO ONE TWO
+python pcm_phrase.py --dir vocab_pcm --gap-ms 90 --out callsign.wav THIS IS WZERO
+```
 
 `build_vocab.py` builds `.cpp` vocabulary files from `.asm` sources, `.cpp`
 sources, or a mix of both. Directories are accepted as inputs. ASM `FCB` bytes
