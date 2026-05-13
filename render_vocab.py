@@ -19,10 +19,10 @@ import argparse
 import sys
 from pathlib import Path
 
-# Pull in the interpolated synthesizer and vocabulary machinery.
+# Pull in the primary interpolated synthesizer and vocabulary machinery.
 sys.path.insert(0, str(Path(__file__).parent))
 from lpc_audio import normalize_peak, resample_clock_speed, save_wav, validate_speed
-import tms_speak_interp as tms
+import tms_speak as tms
 
 _DEFAULT_OUT = Path(__file__).parent.parent / "vocab_pcm"
 

@@ -7,20 +7,28 @@ Vocabulary format is compatible with the Arduino Talkie library (GPLv2).
 Built-in words: numbers 0-12 from TI VM61002 ROM (US male voice).
 
 Usage:
-  python tms_speak_interp.py                         # interactive mode
-  python tms_speak_interp.py ZERO ONE TWO            # speak words directly
-  python tms_speak_interp.py --speed 1.03 ONE TWO    # slightly higher pitch
-  python tms_speak_interp.py --load Vocab_FF800.cpp WORD
+  python tms_speak.py                         # interactive mode
+  python tms_speak.py ZERO ONE TWO            # speak words directly
+  python tms_speak.py --speed 1.03 ONE TWO    # slightly higher pitch
+  python tms_speak.py --load Vocab_FF800.cpp WORD
 
 Commands in interactive mode:
   <WORD> [WORD ...]   speak one or more words
-  list                list available words
+  list [PATTERN ...]  list available words, optionally filtered with wildcards
   load <file.cpp>     replace vocabulary with a .cpp vocabulary file
   speed <factor>      set playback speed/pitch
   quit / exit / q     exit
 """
 
 import argparse
+import fnmatch
+import glob
+from pathlib import Path
+
+try:
+    import readline
+except ImportError:
+    readline = None
 
 import numpy as np
 import sounddevice as sd
@@ -359,15 +367,81 @@ def speak_words(words: list[str]):
         play(audio)
 
 
-def print_vocab():
-    """Print all available words in columns."""
-    words = sorted(vocab)
+def vocab_words_matching(patterns: list[str] | None = None) -> list[str]:
+    """Return sorted vocabulary words matching shell-style wildcard patterns."""
+    if not patterns:
+        return sorted(vocab)
+
+    normalized = [pattern.upper() for pattern in patterns]
+    return sorted(
+        {
+            word
+            for word in vocab
+            for pattern in normalized
+            if fnmatch.fnmatchcase(word, pattern)
+        }
+    )
+
+
+def print_vocab(patterns: list[str] | None = None):
+    """Print available words in columns, optionally filtered by wildcards."""
+    words = vocab_words_matching(patterns)
+    if not words:
+        print(f"  no words match: {' '.join(patterns or [])}")
+        return
+
     cols  = 6
     rows  = (len(words) + cols - 1) // cols
     for r in range(rows):
         line = [words[r + c * rows] for c in range(cols) if r + c * rows < len(words)]
         print("  " + "  ".join(f"{w:<14}" for w in line))
-    print(f"\n  {len(words)} words total")
+    suffix = f" matching {' '.join(patterns)}" if patterns else " total"
+    print(f"\n  {len(words)} words{suffix}")
+
+
+COMMANDS = ("list", "load", "builtin", "speed", "help", "quit", "exit", "q")
+
+
+def _word_completions(text: str) -> list[str]:
+    prefix = text.upper()
+    return [f"{word} " for word in sorted(vocab) if word.startswith(prefix)]
+
+
+def _path_completions(text: str) -> list[str]:
+    matches = []
+    for match in glob.glob(f"{text}*"):
+        path = Path(match)
+        suffix = "/" if path.is_dir() else " "
+        matches.append(f"{match}{suffix}")
+    return sorted(matches)
+
+
+def install_completion() -> None:
+    """Install readline tab completion for interactive command entry."""
+    if readline is None:
+        return
+
+    def complete(text: str, state: int) -> str | None:
+        line = readline.get_line_buffer()
+        begidx = readline.get_begidx()
+        prior_parts = line[:begidx].split()
+        first = prior_parts[0].lower() if prior_parts else ""
+
+        if not prior_parts:
+            choices = [f"{cmd} " for cmd in COMMANDS if cmd.startswith(text.lower())]
+            choices.extend(_word_completions(text))
+        elif first == "load":
+            choices = _path_completions(text)
+        else:
+            choices = _word_completions(text)
+
+        return choices[state] if state < len(choices) else None
+
+    readline.set_completer(complete)
+    if "libedit" in (readline.__doc__ or ""):
+        readline.parse_and_bind("bind ^I rl_complete")
+    else:
+        readline.parse_and_bind("tab: complete")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -383,7 +457,7 @@ Default vocabulary: built-in TI VM61002 numbers only.
 HELP = """\
 Commands:
   <WORD> [WORD ...]   speak one or more words  (e.g. FIVE POINT THREE)
-  list                list all available words
+  list [PATTERN ...]  list words, optionally filtered with wildcards (e.g. RE*)
   load <file.cpp>     replace vocabulary with a .cpp vocabulary file
   builtin             reset to built-in words only
   speed <factor>      set playback speed/pitch, e.g. 0.97 or 1.03
@@ -393,6 +467,7 @@ Commands:
 
 
 def run_interactive():
+    install_completion()
     print(BANNER)
     while True:
         try:
@@ -412,7 +487,7 @@ def run_interactive():
         elif cmd == "help":
             print(HELP)
         elif cmd == "list":
-            print_vocab()
+            print_vocab(parts[1:])
         elif cmd == "load":
             if len(parts) < 2:
                 print("  usage: load <path/to/vocab.cpp>")
@@ -475,7 +550,9 @@ def main():
         except Exception as e:
             parser.error(f"error loading vocabulary: {e}")
 
-    if args.words:
+    if args.words and args.words[0].lower() == "list":
+        print_vocab(args.words[1:])
+    elif args.words:
         speak_words(args.words)
     else:
         if not args.load:

@@ -11,14 +11,21 @@ Usage:
 
 Commands in interactive mode:
   <WORD> [WORD ...]   play one or more WAV words
-  list                list available WAV words
+  list [PATTERN ...]  list available WAV words, optionally filtered with wildcards
   load <dir>          replace the active WAV vocabulary directory
   quit / exit / q     exit
 """
 
 import argparse
+import fnmatch
+import glob
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import readline
+except ImportError:
+    readline = None
 
 import numpy as np
 import sounddevice as sd
@@ -99,15 +106,81 @@ def speak_words(words: list[str]) -> None:
         play(np.concatenate([entry.samples, silence]), entry.rate)
 
 
-def print_vocab() -> None:
-    """Print all available words in columns."""
-    words = sorted(vocab)
+def vocab_words_matching(patterns: list[str] | None = None) -> list[str]:
+    """Return sorted vocabulary words matching shell-style wildcard patterns."""
+    if not patterns:
+        return sorted(vocab)
+
+    normalized = [pattern.upper() for pattern in patterns]
+    return sorted(
+        {
+            word
+            for word in vocab
+            for pattern in normalized
+            if fnmatch.fnmatchcase(word, pattern)
+        }
+    )
+
+
+def print_vocab(patterns: list[str] | None = None) -> None:
+    """Print available words in columns, optionally filtered by wildcards."""
+    words = vocab_words_matching(patterns)
+    if not words:
+        print(f"  no words match: {' '.join(patterns or [])}")
+        return
+
     cols = 6
     rows = (len(words) + cols - 1) // cols
     for r in range(rows):
         line = [words[r + c * rows] for c in range(cols) if r + c * rows < len(words)]
         print("  " + "  ".join(f"{w:<14}" for w in line))
-    print(f"\n  {len(words)} words total")
+    suffix = f" matching {' '.join(patterns)}" if patterns else " total"
+    print(f"\n  {len(words)} words{suffix}")
+
+
+COMMANDS = ("list", "load", "help", "quit", "exit", "q")
+
+
+def _word_completions(text: str) -> list[str]:
+    prefix = text.upper()
+    return [f"{word} " for word in sorted(vocab) if word.startswith(prefix)]
+
+
+def _path_completions(text: str) -> list[str]:
+    matches = []
+    for match in glob.glob(f"{text}*"):
+        path = Path(match)
+        suffix = "/" if path.is_dir() else " "
+        matches.append(f"{match}{suffix}")
+    return sorted(matches)
+
+
+def install_completion() -> None:
+    """Install readline tab completion for interactive command entry."""
+    if readline is None:
+        return
+
+    def complete(text: str, state: int) -> str | None:
+        line = readline.get_line_buffer()
+        begidx = readline.get_begidx()
+        prior_parts = line[:begidx].split()
+        first = prior_parts[0].lower() if prior_parts else ""
+
+        if not prior_parts:
+            choices = [f"{cmd} " for cmd in COMMANDS if cmd.startswith(text.lower())]
+            choices.extend(_word_completions(text))
+        elif first == "load":
+            choices = _path_completions(text)
+        else:
+            choices = _word_completions(text)
+
+        return choices[state] if state < len(choices) else None
+
+    readline.set_completer(complete)
+    if "libedit" in (readline.__doc__ or ""):
+        readline.parse_and_bind("bind ^I rl_complete")
+    else:
+        readline.parse_and_bind("tab: complete")
 
 
 BANNER = """\
@@ -118,7 +191,7 @@ Type words to play, 'list' to see vocabulary, or 'load <dir>' to load rendered W
 HELP = """\
 Commands:
   <WORD> [WORD ...]   play one or more words  (e.g. FIVE POINT THREE)
-  list                list all available words
+  list [PATTERN ...]  list words, optionally filtered with wildcards (e.g. RE*)
   load <dir>          replace vocabulary with WAV files from a directory
   help                show this message
   quit / exit / q     exit
@@ -126,6 +199,7 @@ Commands:
 
 
 def run_interactive() -> None:
+    install_completion()
     print(BANNER)
     if active_dir is not None:
         print(f"Loaded {len(vocab)} WAV word(s) from {active_dir}")
@@ -147,7 +221,7 @@ def run_interactive() -> None:
         elif cmd == "help":
             print(HELP)
         elif cmd == "list":
-            print_vocab()
+            print_vocab(parts[1:])
         elif cmd == "load":
             if len(parts) < 2:
                 print("  usage: load <path/to/wav-directory>")
@@ -180,11 +254,13 @@ def main() -> None:
         loaded = load_pcm_dir(Path(args.dir))
         print(f"Loaded {loaded} WAV word(s) from {args.dir}")
     except Exception as e:
-        if args.words:
+        if args.words and args.words[0].lower() != "list":
             parser.error(f"error loading WAV directory: {e}")
         print(f"No PCM vocabulary loaded: {e}")
 
-    if args.words:
+    if args.words and args.words[0].lower() == "list":
+        print_vocab(args.words[1:])
+    elif args.words:
         speak_words(args.words)
     else:
         run_interactive()

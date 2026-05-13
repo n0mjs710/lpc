@@ -39,7 +39,7 @@ python -m pip install -r requirements.txt
 Run the tools with `python` while the environment is active:
 
 ```sh
-python tms_speak_interp.py ZERO ONE TWO
+python tms_speak.py ZERO ONE TWO
 ```
 
 When you are done, you can leave the environment:
@@ -53,16 +53,22 @@ terminal later, run `source venv/bin/activate` again before using the tools.
 
 ## Main Scripts
 
-`tms_speak_interp.py` is the primary playback tool. It uses the higher-quality
-renderer with 8-step frame interpolation, built-in TI number words by default,
-external `.cpp` vocabulary loading, and live playback speed/pitch adjustment.
+`tms_speak.py` is the primary playback tool. It uses the higher-quality renderer
+with 8-step frame interpolation, built-in TI number words by default, external
+`.cpp` vocabulary loading, and live playback speed/pitch adjustment.
 
 ```sh
-python tms_speak_interp.py
-python tms_speak_interp.py ZERO ONE TWO
-python tms_speak_interp.py --speed 1.03 ZERO ONE
-python tms_speak_interp.py --load Vocab_FF800.cpp WZERO
+python tms_speak.py
+python tms_speak.py ZERO ONE TWO
+python tms_speak.py --speed 1.03 ZERO ONE
+python tms_speak.py --load Vocab_FF800.cpp WZERO
+python tms_speak.py --load Vocab_FF800.cpp list 'RE*'
 ```
+
+In interactive mode, `list` accepts shell-style wildcard filters such as
+`list RE*`, `list *ING`, or `list W?ERO`. Tab completion is enabled for command
+names, vocabulary words, and paths after `load` when Python's `readline`
+support is available.
 
 `tms_speak_orig.py` is the historical baseline synthesizer. It keeps the older
 no-interpolation synthesis path for comparison, but uses the same `.cpp`
@@ -94,7 +100,11 @@ or to audition PCM output before loading it into a target system.
 ```sh
 python pcm_speak.py --dir vocab_pcm ZERO ONE TWO
 python pcm_speak.py --dir vocab_pcm
+python pcm_speak.py --dir vocab_pcm list 'RE*'
 ```
+
+The PCM player supports the same interactive `list` wildcard filters and tab
+completion for vocabulary words.
 
 `build_vocab.py` builds `.cpp` vocabulary files from `.asm` sources, `.cpp`
 sources, or a mix of both. Directories are accepted as inputs. ASM `FCB` bytes
@@ -201,7 +211,7 @@ This project stands on work from several people and communities:
 - The Talkie vocabulary data is derived from TI VM61002/VM61003/VM61004/VM61005
   speech ROMs. The synthesizer code uses coefficient tables compatible with the
   TI TMS5100/TMS5220 family.
-- The frame interpolation behavior in `tms_speak_interp.py` was informed by the
+- The frame interpolation behavior in `tms_speak.py` was informed by the
   real chip behavior and by MAME's TMS speech synthesizer emulation.
 - The ASM vocabulary files in `sources/asm/ff800/` were contributed by Joe
   Haas, KE0FF, from his FF-800 repeater controller project. This project
