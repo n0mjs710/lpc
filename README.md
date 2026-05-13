@@ -7,6 +7,9 @@ The project uses Talkie-compatible `.cpp` vocabulary files as the working
 vocabulary format. ASM source files can be converted into `.cpp`; the speak and
 render tools load `.cpp` only.
 
+Source vocabulary files from other projects live under `sources/`. The project
+root is reserved for the ready-to-use generated `.cpp` vocabularies.
+
 ## Setup
 
 These scripts need the packages listed in `requirements.txt`. The recommended
@@ -74,46 +77,52 @@ python render_vocab.py --out vocab_pcm
 python render_vocab.py --load Vocab_FF800.cpp --out vocab_pcm
 ```
 
-`convert_asm_cpp.py` converts one or more TI-style ASM `FCB` vocabulary files,
-or directories of `.asm` files, into Talkie-compatible `.cpp`. The ASM bytes are
-bit-reversed into the byte order expected by the Python/Talkie LPC reader.
+`build_vocab.py` builds `.cpp` vocabulary files from `.asm` sources, `.cpp`
+sources, or a mix of both. Directories are accepted as inputs. ASM `FCB` bytes
+are bit-reversed into the byte order expected by the Python/Talkie LPC reader.
+It detects duplicate word names and can prompt for each duplicate, keep the
+first copy, use the last copy, keep both with a generated name, or stop with an
+error.
 
 ```sh
-python convert_asm_cpp.py "ASM Files" -o Vocab_ASM_Combined.cpp
-python convert_asm_cpp.py "ASM Files/VM71003r.asm" -o Vocab_VM71003.cpp
+python build_vocab.py sources/asm/ff800 -o Vocab_FF800.cpp
+python build_vocab.py sources/cpp/talkie/Vocab_US_Large.cpp sources/cpp/talkie/Vocab_US_Clock.cpp -o Vocab_Talkie.cpp --duplicates first
+python build_vocab.py sources/asm/ff800 sources/cpp/talkie/Vocab_US_Large.cpp sources/cpp/talkie/Vocab_US_Clock.cpp -o Vocab_Combined.cpp --duplicates first --sort
 ```
 
-`build_vocab.py` combines `.cpp` vocabulary files. It detects duplicate word
-names and can prompt for each duplicate, keep the first copy, use the last copy,
-keep both with a generated name, or stop with an error.
-
-```sh
-python build_vocab.py Vocab_US_Large.cpp Vocab_US_Clock.cpp -o Vocab_Combined.cpp
-python build_vocab.py Vocab_FF800.cpp Vocab_US_Large.cpp -o Vocab_All.cpp --duplicates both
-python build_vocab.py Vocab_FF800.cpp Vocab_US_Large.cpp -o Vocab_All.cpp --duplicates first --sort
-```
+Input order controls duplicate priority for `--duplicates first` and
+`--duplicates last`. Files inside a directory input are processed
+alphabetically, so use explicit file paths when duplicate priority matters.
+Bare output filenames are written in the project root/current directory. Use
+`--out-dir DIR` or pass a path to `-o` to write somewhere else.
 
 `lpc_vocab.py` contains shared vocabulary parsing, ASM conversion, byte
 formatting, and `.cpp` writing helpers used by the command-line tools.
 
 ## Vocabulary Files
 
-`Vocab_US_Large.cpp` and `Vocab_US_Clock.cpp` are Talkie-compatible vocabulary
-sets. `Vocab_ASM_Combined.cpp` is the reproducible converted output from the
-ASM sources in `ASM Files/`. `Vocab_FF800.cpp` is the earlier converted snapshot
-of the same ASM vocabulary, retained for comparison. `Vocab_Combined.cpp` is a
-combined `.cpp` vocabulary file built from repo-local `.cpp` inputs.
+The original source vocabularies are kept under `sources/`:
+
+- `sources/asm/ff800/` contains the FF-800 ASM files. These filenames are
+  prefixed with `FF800_` so their origin stays clear.
+- `sources/cpp/talkie/` contains the Talkie `.cpp` vocabulary files.
+
+The ready-to-use generated vocabularies live in the project root:
+
+- `Vocab_FF800.cpp` is generated from `sources/asm/ff800/`.
+- `Vocab_Combined.cpp` is generated from the FF-800 ASM sources plus the Talkie
+  `.cpp` sources.
 
 To rebuild the ASM-derived vocabulary from source:
 
 ```sh
-python convert_asm_cpp.py "ASM Files" -o Vocab_ASM_Combined.cpp
+python build_vocab.py sources/asm/ff800 -o Vocab_FF800.cpp
 ```
 
-To make a combined vocabulary from any `.cpp` inputs:
+To rebuild the combined vocabulary:
 
 ```sh
-python build_vocab.py Vocab_ASM_Combined.cpp Vocab_US_Large.cpp Vocab_US_Clock.cpp -o Vocab_Combined.cpp --duplicates first --sort
+python build_vocab.py sources/asm/ff800 sources/cpp/talkie/Vocab_US_Large.cpp sources/cpp/talkie/Vocab_US_Clock.cpp -o Vocab_Combined.cpp --duplicates first --sort
 ```
 
 ## Default Vocabulary Rule
@@ -126,9 +135,10 @@ external `.cpp` vocabulary replaces the built-ins.
 
 This project stands on work from several people and communities:
 
-- The `Vocab_US_Large.cpp` and `Vocab_US_Clock.cpp` files come from the Arduino
-  Talkie library. Their source headers credit Peter Knight, copyright 2011, and
-  state that the code is released under the GPLv2 license.
+- The `sources/cpp/talkie/Vocab_US_Large.cpp` and
+  `sources/cpp/talkie/Vocab_US_Clock.cpp` files come from the Arduino Talkie
+  library. Their source headers credit Peter Knight, copyright 2011, and state
+  that the code is released under the GPLv2 license.
 - Those Talkie vocabulary headers also credit Armin Joachimsmeyer for converting
   the vocabulary data to `.c`/`.h` form and making the names unique in 2018.
 - The Talkie vocabulary data is derived from TI VM61002/VM61003/VM61004/VM61005
@@ -136,10 +146,10 @@ This project stands on work from several people and communities:
   TI TMS5100/TMS5220 family.
 - The frame interpolation behavior in `tms_speak_interp.py` was informed by the
   real chip behavior and by MAME's TMS speech synthesizer emulation.
-- The ASM vocabulary files in `ASM Files/` were contributed by Joe Haas,
-  KE0FF, from his FF-800 repeater controller project. This project benefits
-  directly from his pioneering work from roughly 30 years ago and from his
-  support in making that material usable here.
+- The ASM vocabulary files in `sources/asm/ff800/` were contributed by Joe
+  Haas, KE0FF, from his FF-800 repeater controller project. This project
+  benefits directly from his pioneering work from roughly 30 years ago and from
+  his support in making that material usable here.
 
 Preserve the relevant upstream notices and license terms when redistributing
 the bundled vocabulary data.

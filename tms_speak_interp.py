@@ -10,7 +10,7 @@ Usage:
   python tms_speak_interp.py                         # interactive mode
   python tms_speak_interp.py ZERO ONE TWO            # speak words directly
   python tms_speak_interp.py --speed 1.03 ONE TWO    # slightly higher pitch
-  python tms_speak_interp.py --load Vocab_ASM_Combined.cpp WORD
+  python tms_speak_interp.py --load Vocab_FF800.cpp WORD
 
 Commands in interactive mode:
   <WORD> [WORD ...]   speak one or more words

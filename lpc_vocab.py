@@ -242,6 +242,7 @@ def write_cpp_file(
 ) -> None:
     """Write entries as a Talkie-compatible .cpp vocabulary file."""
     out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     used_symbols: set[str] = set()
 
     with out_path.open("w") as output:

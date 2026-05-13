@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Combine Talkie-compatible .cpp vocabulary files into one .cpp file.
+Build Talkie-compatible .cpp vocabulary files from ASM and/or .cpp sources.
 
 Examples:
-  python3 build_vocab.py Vocab_US_Large.cpp Vocab_US_Clock.cpp -o Vocab_Combined.cpp
-  python3 build_vocab.py Vocab_FF800.cpp Vocab_ASM_Combined.cpp -o Vocab_All.cpp --duplicates both
+  python3 build_vocab.py sources/asm/ff800 -o Vocab_FF800.cpp
+  python3 build_vocab.py sources/cpp/talkie -o Vocab_Talkie.cpp --duplicates first
+  python3 build_vocab.py sources/asm/ff800 sources/cpp/talkie -o Vocab_Combined.cpp --duplicates first --sort
 """
 
 from __future__ import annotations
@@ -17,10 +18,13 @@ from lpc_vocab import (
     VocabEntry,
     c_identifier_fragment,
     clean_vocab_name,
+    parse_asm_file,
     parse_cpp_file,
     source_suffix,
     write_cpp_file,
 )
+
+SUPPORTED_SUFFIXES = {".asm", ".cpp"}
 
 
 def normalized_lookup_name(name: str) -> str:
@@ -126,8 +130,41 @@ def resolve_duplicate(
     raise ValueError(f"unsupported duplicate policy: {policy}")
 
 
+def supported_files(path: Path) -> list[Path]:
+    if path.is_dir():
+        files = sorted(
+            child
+            for child in path.rglob("*")
+            if child.is_file() and child.suffix.lower() in SUPPORTED_SUFFIXES
+        )
+        if not files:
+            raise ValueError(f"no .asm or .cpp vocabulary files found in directory: {path}")
+        return files
+
+    suffix = path.suffix.lower()
+    if suffix not in SUPPORTED_SUFFIXES:
+        raise ValueError(f"expected a .asm or .cpp vocabulary file: {path}")
+    return [path]
+
+
+def parse_source_file(path: Path) -> list[VocabEntry]:
+    suffix = path.suffix.lower()
+    if suffix == ".asm":
+        return parse_asm_file(path)
+    if suffix == ".cpp":
+        return parse_cpp_file(path)
+    raise ValueError(f"expected a .asm or .cpp vocabulary file: {path}")
+
+
+def resolve_output_path(out_name: str, out_dir: str) -> Path:
+    out_path = Path(out_name)
+    if out_path.is_absolute() or out_path.parent != Path("."):
+        return out_path
+    return Path(out_dir) / out_path
+
+
 def combine_entries(
-    paths: list[str],
+    inputs: list[str],
     duplicate_policy: str,
     sort_entries: bool,
 ) -> tuple[list[VocabEntry], int, list[str]]:
@@ -137,12 +174,12 @@ def combine_entries(
     duplicates = 0
     decisions: list[str] = []
 
-    for item in paths:
-        path = Path(item)
-        if path.suffix.lower() != ".cpp":
-            raise ValueError(f"expected a .cpp vocabulary file: {path}")
+    source_files: list[Path] = []
+    for item in inputs:
+        source_files.extend(supported_files(Path(item)))
 
-        entries = parse_cpp_file(path)
+    for path in source_files:
+        entries = parse_source_file(path)
         print(f"{path.name}: {len(entries)} entr{'y' if len(entries) == 1 else 'ies'}")
 
         for entry in entries:
@@ -165,18 +202,23 @@ def combine_entries(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Combine Talkie-compatible .cpp vocabulary files.",
+        description="Build a Talkie-compatible .cpp vocabulary from .asm and/or .cpp sources.",
     )
     parser.add_argument(
         "inputs",
         nargs="+",
-        help="one or more .cpp vocabulary files",
+        help="one or more .asm/.cpp vocabulary files or directories",
     )
     parser.add_argument(
         "-o",
         "--out",
         required=True,
-        help="output .cpp vocabulary file",
+        help="output .cpp filename or path",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=".",
+        help="directory for bare output filenames (default: project root/current directory)",
     )
     parser.add_argument(
         "--duplicates",
@@ -197,22 +239,23 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
+        out_path = resolve_output_path(args.out, args.out_dir)
         entries, duplicates, decisions = combine_entries(
-            paths=args.inputs,
+            inputs=args.inputs,
             duplicate_policy=args.duplicates,
             sort_entries=args.sort,
         )
         write_cpp_file(
             entries=entries,
-            out_path=args.out,
-            title="Combined TI LPC vocabulary",
+            out_path=out_path,
+            title="TI LPC vocabulary",
             prefix=args.symbol_prefix,
         )
     except Exception as exc:
         parser.exit(1, f"error: {exc}\n")
 
     print()
-    print(f"Wrote {len(entries)} entries to {Path(args.out).name}")
+    print(f"Wrote {len(entries)} entries to {out_path}")
     print(f"Duplicate names found: {duplicates}")
     for decision in decisions:
         print(f"  {decision}")
