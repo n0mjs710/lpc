@@ -69,26 +69,80 @@ no-interpolation synthesis path for comparison, but uses the same `.cpp`
 vocabulary loading rule.
 
 `render_vocab.py` renders the active vocabulary to exact 8 kHz, 16-bit, mono
-WAV files. Playback speed/pitch changes are intentionally not applied here so
-rendered PCM remains stable for target systems.
+WAV files. By default it renders at the normal LPC timing. The optional
+`--speed` value resamples the PCM while keeping the WAV sample rate at exactly
+8 kHz, so `--speed 1.03` sounds like LPC playback at 8240 Hz but still produces
+standard 8 kHz PCM.
 
 ```sh
 python render_vocab.py --out vocab_pcm
 python render_vocab.py --load Vocab_FF800.cpp --out vocab_pcm
+python render_vocab.py --load Vocab_FF800.cpp --out vocab_pcm_fast --speed 1.03
+```
+
+The `--speed` option emulates repeater controllers that varied the speech chip
+clock with an RC oscillator adjustment. Pitch and duration change together; this
+is not a modern pitch-only shifter. The default `--speed 1.0` path leaves the
+rendered PCM timing unchanged. When speed shifting is requested, the renderer
+uses SciPy's polyphase resampler so the WAV file still has a clean 8 kHz sample
+rate for target systems.
+
+`pcm_speak.py` plays rendered WAV vocabularies by word name, using the WAV
+filename stem as the word. Use it to compare rendered PCM against LPC playback
+or to audition PCM output before loading it into a target system.
+
+```sh
+python pcm_speak.py --dir vocab_pcm ZERO ONE TWO
+python pcm_speak.py --dir vocab_pcm
 ```
 
 `build_vocab.py` builds `.cpp` vocabulary files from `.asm` sources, `.cpp`
 sources, or a mix of both. Directories are accepted as inputs. ASM `FCB` bytes
 are bit-reversed into the byte order expected by the Python/Talkie LPC reader.
-It detects duplicate word names and can prompt for each duplicate, keep the
-first copy, use the last copy, keep both with a generated name, or stop with an
-error.
+It detects duplicate word names and can either prompt for each duplicate or use
+a fixed policy.
 
 ```sh
 python build_vocab.py sources/asm/ff800 -o Vocab_FF800.cpp
 python build_vocab.py sources/cpp/talkie/Vocab_US_Large.cpp sources/cpp/talkie/Vocab_US_Clock.cpp -o Vocab_Talkie.cpp --duplicates first
 python build_vocab.py sources/asm/ff800 sources/cpp/talkie/Vocab_US_Large.cpp sources/cpp/talkie/Vocab_US_Clock.cpp -o Vocab_Combined.cpp --duplicates first --sort
 ```
+
+Duplicate handling is controlled with `--duplicates`:
+
+- `prompt` is the default. For each duplicate, the tool shows the existing
+  source, incoming source, byte count, and whether the LPC bytes are the same or
+  different. Choose `1` to keep the existing entry, `2` to replace it with the
+  incoming entry, or `b` to keep both.
+- When you choose `b` interactively, the tool suggests a new name based on the
+  incoming word and source filename. Press Enter to accept that generated name,
+  or type your own replacement name. The name is normalized into the safe
+  vocabulary symbol style used by the project. If the name is already in use,
+  the tool asks again.
+- `first` always keeps the first copy of a duplicate name and ignores later
+  copies.
+- `last` always replaces the earlier copy with the later copy.
+- `both` keeps both entries automatically, using generated names for duplicate
+  incoming entries.
+- `error` stops as soon as a duplicate name is found. This is useful when you
+  expect a source set to be internally unique.
+
+Interactive duplicate handling looks like this:
+
+```text
+Duplicate word: ONE (different LPC bytes)
+  existing: Vocab_US_Large.cpp, 68 bytes
+  incoming: FF800_FFWRDAr.asm (ONE), 72 bytes
+  [1] keep existing
+  [2] use incoming
+  [b] keep both
+choice [1/2/b]: b
+name for incoming duplicate [ONE_FF800_FFWRDAR]:
+```
+
+Use `--duplicates prompt` when curating a vocabulary by hand. Use `first`,
+`last`, `both`, or `error` for repeatable scripted builds, continuous
+integration, or any shell where interactive input is not available.
 
 Input order controls duplicate priority for `--duplicates first` and
 `--duplicates last`. Files inside a directory input are processed
@@ -98,6 +152,9 @@ Bare output filenames are written in the project root/current directory. Use
 
 `lpc_vocab.py` contains shared vocabulary parsing, ASM conversion, byte
 formatting, and `.cpp` writing helpers used by the command-line tools.
+
+`lpc_audio.py` contains shared PCM helpers for WAV loading/writing, peak
+normalization, and PCM resampling for clock-style speed/pitch changes.
 
 ## Vocabulary Files
 
