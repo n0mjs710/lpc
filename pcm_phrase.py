@@ -8,6 +8,7 @@ words with a configurable gap, and writes one mono PCM WAV file.
 Usage:
   python pcm_phrase.py --dir vocab_pcm --out phrase.wav ZERO ONE TWO
   python pcm_phrase.py -d vocab_pcm -o phrase.wav THIS IS A TEST
+  python pcm_phrase.py --amplitude-scale 0.8 --out phrase.wav RED ALERT
 """
 
 import argparse
@@ -52,12 +53,15 @@ def build_phrase(
     vocab: dict[str, PcmWord],
     words: list[str],
     gap_ms: int = SILENCE_MS,
+    amplitude_scale: float = 1.0,
 ) -> tuple[np.ndarray, int]:
     """Concatenate word WAVs into one phrase, inserting silence between words."""
     if not words:
         raise ValueError("at least one word is required")
     if gap_ms < 0:
         raise ValueError("gap must be zero or greater")
+    if not np.isfinite(amplitude_scale) or amplitude_scale < 0.0:
+        raise ValueError("amplitude scale must be finite and zero or greater")
 
     entries = []
     missing = []
@@ -88,7 +92,10 @@ def build_phrase(
         if index < len(entries) - 1 and silence.size:
             chunks.append(silence)
 
-    return np.concatenate(chunks).astype(np.float32), rate
+    phrase = np.concatenate(chunks).astype(np.float32)
+    if amplitude_scale != 1.0:
+        phrase = (phrase * amplitude_scale).astype(np.float32)
+    return phrase, rate
 
 
 def main() -> None:
@@ -116,12 +123,25 @@ def main() -> None:
         metavar="MS",
         help=f"silence between words in milliseconds (default: {SILENCE_MS})",
     )
+    parser.add_argument(
+        "--amplitude-scale",
+        "--scale",
+        type=float,
+        default=1.0,
+        metavar="FACTOR",
+        help="multiply output amplitude by this factor before writing (default: 1.0)",
+    )
     parser.add_argument("words", nargs="+", help="words to concatenate")
     args = parser.parse_args()
 
     try:
         vocab = load_pcm_dir(Path(args.dir))
-        phrase, rate = build_phrase(vocab, args.words, args.gap_ms)
+        phrase, rate = build_phrase(
+            vocab,
+            args.words,
+            args.gap_ms,
+            args.amplitude_scale,
+        )
         out_path = Path(args.out)
         save_wav(out_path, phrase, rate)
     except Exception as exc:

@@ -117,6 +117,7 @@ the repo-local `vocab_pcm/` directory.
 python pcm_phrase.py --out red-alert.wav RED ALERT
 python pcm_phrase.py --dir vocab_pcm --out phrase.wav ZERO ONE TWO
 python pcm_phrase.py --dir vocab_pcm --gap-ms 90 --out callsign.wav THIS IS WZERO
+python pcm_phrase.py --amplitude-scale 0.75 --out quieter.wav RED ALERT
 ```
 
 `build_vocab.py` builds `.cpp` vocabulary files from `.asm` sources, `.cpp`
