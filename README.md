@@ -23,7 +23,7 @@ Run `source venv/bin/activate` in each new terminal before using the tools.
 
 ## Synthesis Model
 
-The synthesizer in `tms_speak.py` is a Python port of MAME's `tms5220` core
+`tms5220.py` is a Python port of MAME's `tms5220` core
 (BSD-3-Clause). It uses the TMS5220 energy, pitch, K1-K10, and chirp ROM tables
 (verified by MAME against decapped TMS5220 and TMS5220C dies) and reproduces
 the chip's sample-level behavior: shift-based parameter interpolation,
@@ -35,7 +35,7 @@ As on the chip, each word starts with about 25 ms of silence (the first frame
 only sets the starting point) and ends with a 25 ms ramp to zero after the stop
 frame. Loud words can clip at the DAC.
 
-With no filter options, both tools output these raw DAC samples.
+With no filter options, `tms_speak.py` plays and renders these raw DAC samples.
 [docs/TMS5220_MODEL.md](docs/TMS5220_MODEL.md) specifies the model, lists what
 changed from the earlier Talkie-based model, and is the reference for ports.
 [docs/tms5220_ref.c](docs/tms5220_ref.c) is an integer-only C version whose
@@ -63,7 +63,7 @@ output at 6x the chip clock (48 kHz at 8000 Hz) and filters it there.
 
 Cutoffs are in real Hz and do not move with `--clock`. Typical board-style
 settings are `--dc 30 --lpf 4500`. Live playback plays the 6x oversampled
-signal directly. `render_vocab.py` resamples it to the WAV rate. An 8 kHz WAV
+signal directly. `--render` resamples it to the WAV rate. An 8 kHz WAV
 keeps the response below 4 kHz only; `--rate 48000` keeps the full response and
 matches live playback exactly.
 
@@ -71,58 +71,57 @@ matches live playback exactly.
 
 ### tms_speak.py
 
-Plays words through the synthesizer. It uses built-in TI number words unless a
-vocabulary is loaded.
+Plays words through the synthesizer, or writes them to WAV files. It uses
+built-in TI number words unless a vocabulary is loaded.
 
 ```sh
 python tms_speak.py                                   # interactive
 python tms_speak.py ZERO ONE TWO
 python tms_speak.py --clock 8240 ZERO ONE
 python tms_speak.py --dc 30 --lpf 4500 ZERO ONE
-python tms_speak.py --load Vocab_FF800.cpp WZERO
+python tms_speak.py --load Vocab_FF800.cpp WFIVE
 python tms_speak.py --load Vocab_FF800.cpp list 'RE*'
 ```
 
+Instead of playing, it can write 16-bit mono WAV files:
+
+- `--out FILE` writes the words as one phrase, exactly as playback would
+  sound.
+- `--render DIR` writes each word to `DIR/<WORD>.wav`: every word in the
+  vocabulary, or only the words listed.
+
+`--rate HZ` (8000-96000, default 8000) sets the WAV sample rate; a non-default
+clock is resampled so the WAV rate stays fixed. `--gap-ms` (default 60) sets the
+silence between words, and `--amplitude-scale` scales the output.
+
+```sh
+python tms_speak.py --load Vocab_FF800.cpp --out warning.wav WARNING STOP
+python tms_speak.py --load Vocab_FF800.cpp --out callsign.wav --gap-ms 90 --dc 30 --lpf 4500 THISIS WFIVE
+python tms_speak.py --load Vocab_FF800.cpp --render vocab_pcm
+python tms_speak.py --load Vocab_FF800.cpp --render vocab_pcm_fast --clock 8240
+python tms_speak.py --load Vocab_FF800.cpp --render vocab_pcm_hifi --rate 48000 --dc 30 --lpf 4500
+python tms_speak.py --load Vocab_FF800.cpp --render clips WARNING STOP
+```
+
 Interactive commands: words to speak, `list [PATTERN ...]` (shell-style
-wildcards such as `RE*`, `*ING`, `W?ERO`), `load <file.cpp>`, `builtin`,
+wildcards such as `RE*`, `*ING`, `W?IVE`), `load <file.cpp>`, `builtin`,
 `clock <hz>`, `lpf <hz> [poles]`, `dc <hz>`, `help`, `quit`. Tab completion
 covers commands, words, and paths after `load` when `readline` is available.
 
-### render_vocab.py
-
-Renders every word in the active vocabulary to a 16-bit mono WAV file
-(default `vocab_pcm/`, 8 kHz). It accepts the same `--load`, `--clock`, `--lpf`,
-`--poles`, and `--dc` options as `tms_speak.py`, plus `--rate HZ` (8000-96000)
-for the WAV sample rate. A non-default clock is resampled so the WAV rate stays
-fixed.
-
-```sh
-python render_vocab.py --load Vocab_FF800.cpp --out vocab_pcm
-python render_vocab.py --load Vocab_FF800.cpp --out vocab_pcm_fast --clock 8240
-python render_vocab.py --load Vocab_FF800.cpp --out vocab_pcm_hifi --rate 48000 --dc 30 --lpf 4500
-```
-
 ### pcm_speak.py
 
-Plays rendered WAV vocabularies by word name (the WAV filename stem), for
-auditioning PCM output. Defaults to `vocab_pcm/` and supports the same `list`
-filters and tab completion.
+Uses existing WAV files as a vocabulary, with each filename stem as the word
+(default `vocab_pcm/`). It plays words, or with `--out` joins them into one
+phrase WAV, with the same `--gap-ms` and `--amplitude-scale` options as
+`tms_speak.py`. Interactive mode supports `list`, `load <dir>`, and tab
+completion. To build a phrase straight from LPC data, use
+`tms_speak.py --out`.
 
 ```sh
 python pcm_speak.py RED
-python pcm_speak.py --dir vocab_pcm ZERO ONE TWO
 python pcm_speak.py --dir vocab_pcm list 'RE*'
-```
-
-### pcm_phrase.py
-
-Joins rendered WAV words into one phrase WAV with a silence gap between words.
-Defaults to `vocab_pcm/`.
-
-```sh
-python pcm_phrase.py --out red-alert.wav RED ALERT
-python pcm_phrase.py --dir vocab_pcm --gap-ms 90 --out callsign.wav THIS IS WZERO
-python pcm_phrase.py --amplitude-scale 0.75 --out quieter.wav RED ALERT
+python pcm_speak.py --out warning.wav WARNING STOP
+python pcm_speak.py --gap-ms 90 --amplitude-scale 0.75 --out callsign.wav THISIS WFIVE
 ```
 
 ### build_vocab.py
@@ -162,11 +161,13 @@ name for incoming duplicate [ONE_FF800_FFWRDAR]:
 
 ### Other Files
 
-- `tms_speak_orig.py`: the original no-interpolation synthesizer, kept for
-  comparison.
-- `lpc_vocab.py`: vocabulary parsing, ASM conversion, and `.cpp` writing.
-- `lpc_audio.py`: WAV I/O, normalization, resampling, and the output stage
-  model.
+- `tms5220.py`: the synthesis core (ROM tables and `synthesize()`).
+- `lpc_audio.py`: the output stage model, resampling, normalization, and WAV
+  I/O.
+- `lpc_vocab.py`: vocabulary parsing, ASM conversion, `.cpp` writing, and the
+  built-in words.
+- `lpc_cli.py`: the synthesis and phrase options, word listing, and the
+  interactive shell, shared by `tms_speak.py` and `pcm_speak.py`.
 
 ## Vocabulary Files
 

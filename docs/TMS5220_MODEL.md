@@ -1,6 +1,6 @@
 # TMS5220 Synthesis Model
 
-This document specifies the synthesis model in `tms_speak.py` (`synthesize()`)
+This document specifies the synthesis model in `tms5220.py` (`synthesize()`)
 and the output-stage options in `lpc_audio.py`, for porting to other
 implementations. The purpose of the model is to reproduce a real TMS5220
 accurately, with filter and rendering options to match a variety of real-world
@@ -49,7 +49,7 @@ The previous model was based on the Arduino Talkie synthesizer.
 ## Tables
 
 `ENERGY[16]`, `PERIOD[64]`, `K1`-`K10`, `CHIRP`, and `INTERP_SHIFT[8] =
-{0,3,3,3,2,2,1,1}` are listed in `tms5220_ref.c` and `tms_speak.py`. The C
+{0,3,3,3,2,2,1,1}` are listed in `tms5220_ref.c` and `tms5220.py`. The C
 reference stores them as plain `const`. On AVR this places them in RAM unless
 they are moved to `PROGMEM` and read with `pgm_read_byte`/`pgm_read_word`.
 
@@ -158,14 +158,14 @@ enabled by `--lpf` or `--dc`:
 
 Filters are designed with `scipy.signal.butter` at the oversampled rate and
 applied causally (`sosfilt`). Live playback plays the oversampled signal.
-`render_vocab.py` resamples it to `--rate` (default 8000). On hardware, these
+`tms_speak.py --render` resamples it to `--rate` (default 8000). On hardware, these
 stages correspond to the analog reconstruction filter and coupling capacitor
 after the DAC or PWM output.
 
 ## Tool Behavior Outside the Chip Model
 
-- Playback and rendering peak-normalize output to 0.9 (per phrase in
-  `tms_speak.py`, per word in `render_vocab.py`).
-- `tms_speak.py` inserts 60 ms of silence after each word.
-- A non-default `--clock` in `render_vocab.py` is resampled to the fixed WAV
-  rate.
+- Output is peak-normalized to 0.9: per phrase for playback and `--out`, per
+  word for `--render`. `--amplitude-scale` is applied after normalization.
+- Playback and `--out` insert `--gap-ms` (default 60 ms) of silence between
+  words.
+- With `--render`, a non-default `--clock` is resampled to the fixed WAV rate.

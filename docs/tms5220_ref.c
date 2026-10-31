@@ -1,5 +1,5 @@
 /*
- * TMS5220 synthesis core: C reference for tms_speak.py synthesize().
+ * TMS5220 synthesis core: C reference for tms5220.py synthesize().
  * Integer only; written for 16-bit int targets (AVR). Produces output
  * identical to the Python core. See docs/TMS5220_MODEL.md.
  *

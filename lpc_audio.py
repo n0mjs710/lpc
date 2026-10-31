@@ -8,13 +8,6 @@ from pathlib import Path
 import numpy as np
 
 
-def validate_clock(clock_hz: float, min_hz: float = 4000, max_hz: float = 16000) -> float:
-    """Validate and return a simulated LPC sample clock in Hz."""
-    if not min_hz <= clock_hz <= max_hz:
-        raise ValueError(f"clock must be between {min_hz:g} and {max_hz:g} Hz")
-    return clock_hz
-
-
 # Analog output stage defaults: off, so the tools give the raw chip output.
 # DEFAULT_LPF_POLES applies once a low-pass cutoff is set.
 DEFAULT_LPF_HZ = 0
