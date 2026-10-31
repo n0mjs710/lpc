@@ -5,7 +5,7 @@ Build Talkie-compatible .cpp vocabulary files from ASM and/or .cpp sources.
 Examples:
   python3 build_vocab.py sources/asm/ff800 -o Vocab_FF800.cpp
   python3 build_vocab.py sources/cpp/talkie -o Vocab_Talkie.cpp --duplicates first
-  python3 build_vocab.py sources/asm/ff800 sources/cpp/talkie -o Vocab_Combined.cpp --duplicates first --sort
+  python3 build_vocab.py sources/asm/ff800 sources/cpp/talkie -o Vocab_Merged.cpp --duplicates first --sort
 """
 
 from __future__ import annotations

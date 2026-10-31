@@ -134,7 +134,7 @@ write elsewhere.
 
 ```sh
 python build_vocab.py sources/asm/ff800 -o Vocab_FF800.cpp
-python build_vocab.py sources/asm/ff800 sources/cpp/talkie/Vocab_US_Large.cpp sources/cpp/talkie/Vocab_US_Clock.cpp -o Vocab_Combined.cpp --duplicates first --sort
+python build_vocab.py sources/asm/ff800 sources/cpp/talkie/Vocab_US_Large.cpp sources/cpp/talkie/Vocab_US_Clock.cpp -o Vocab_Merged.cpp --duplicates first --sort
 ```
 
 `--duplicates` controls duplicate word names. Input order sets priority for
@@ -171,11 +171,31 @@ name for incoming duplicate [ONE_FF800_FFWRDAR]:
 
 ## Vocabulary Files
 
+`Vocab_Master.cpp` is the master vocabulary: 623 usable words with no errors,
+misclassifications, or duplicates. It was built from the LPCSpeech AVR
+vocabulary and the FF-800 and Talkie recordings:
+
+- Duplicates were removed. Where two or more recordings of a word existed, the
+  best-quality one was selected by listening.
+- Misspelled names were corrected and misidentified words were renamed to the
+  word actually spoken.
+- A few words with no use outside aviation were removed.
+
+Its naming conventions:
+
+- `F_` marks the female voice (`F_GOOD`, `F_EIGHT`, `F_ELEVEN`). Other libraries
+  use `W`, `F`, `F_`, or `W_` for this, and Talkie's `Vocab_US_Clock.cpp` is
+  entirely the female voice with no prefix.
+- `_A` / `_B` are two recordings of the same word and pronunciation (`AND_A`,
+  `AND_B`, `THE_A`, `THE_B`).
+- A phonetic suffix separates homographs (`USE_S` "yoos", `USE_Z` "yooz").
+- Leading or trailing `_` marks a word fragment (`_TEEN`, `FIF_`).
+
+Other files:
+
 - `sources/asm/ff800/`: FF-800 ASM files, prefixed `FF800_`.
 - `sources/cpp/talkie/`: Talkie `.cpp` vocabularies.
 - `Vocab_FF800.cpp`: generated from `sources/asm/ff800/`.
-- `Vocab_Combined.cpp`: generated from the FF-800 and Talkie sources (rebuild
-  command above).
 
 The speak and render tools use the built-in words only when no vocabulary is
 loaded. `--load` or interactive `load <file.cpp>` replaces the built-ins.
