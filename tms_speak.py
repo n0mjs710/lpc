@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-TMS5100/TMS2550 LPC Speech Synthesizer — WITH frame interpolation + normalisation
-Emulates the Texas Instruments speech chip used in Speak & Spell.
+TMS5220 LPC Speech Synthesizer
+Emulates the Texas Instruments TMS5220 speech chip, using the ROM tables and
+sample-level synthesis behavior of MAME's tms5220 core.
 
 Vocabulary format is compatible with the Arduino Talkie library (GPLv2).
 Built-in words: numbers 0-12 from TI VM61002 ROM (US male voice).
@@ -9,14 +10,16 @@ Built-in words: numbers 0-12 from TI VM61002 ROM (US male voice).
 Usage:
   python tms_speak.py                         # interactive mode
   python tms_speak.py ZERO ONE TWO            # speak words directly
-  python tms_speak.py --speed 1.03 ONE TWO    # slightly higher pitch
+  python tms_speak.py --clock 8240 ONE TWO    # slightly higher pitch
   python tms_speak.py --load Vocab_FF800.cpp WORD
 
 Commands in interactive mode:
   <WORD> [WORD ...]   speak one or more words
   list [PATTERN ...]  list available words, optionally filtered with wildcards
   load <file.cpp>     replace vocabulary with a .cpp vocabulary file
-  speed <factor>      set playback speed/pitch
+  clock <hz>          set simulated LPC clock (default 8000)
+  lpf <hz> [poles]    set output low-pass filter (0 = off)
+  dc <hz>             set output DC blocker (0 = off)
   quit / exit / q     exit
 """
 
@@ -33,64 +36,93 @@ except ImportError:
 import numpy as np
 import sounddevice as sd
 
+from lpc_audio import (
+    DEFAULT_DC_HZ,
+    DEFAULT_LPF_HZ,
+    DEFAULT_LPF_POLES,
+    analog_output,
+    describe_filter,
+    normalize_peak,
+    validate_filter,
+)
 from lpc_vocab import load_cpp_sources, reverse_byte as _rev
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TMS5100 LPC coefficient tables (8-bit mode)
-# Source: Arduino Talkie library, TalkieLPC.h
+# TMS5220 ROM tables
+# Source: MAME src/devices/sound/tms5110r.hxx (tms5220_coeff), BSD-3-Clause,
+# copyright-holders Frank Palazzolo, Couriersud, Jonathan Gevaryahu.
+# MAME verified the LPC and chirp tables against TMS5220NL/TMS5220CNL decaps.
 # ─────────────────────────────────────────────────────────────────────────────
 
-ENERGY = [0, 2, 3, 4, 5, 7, 10, 15, 20, 32, 41, 57, 81, 114, 161, 255]
+ENERGY = [0, 1, 2, 3, 4, 6, 8, 11, 16, 23, 33, 47, 63, 85, 114, 0]
 
 PERIOD = [
-     0, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-    31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 45, 47, 49,
-    51, 53, 54, 57, 59, 61, 63, 66, 69, 71, 73, 77, 79, 81, 85, 87,
-    92, 95, 99,102,106,110,115,119,123,128,133,138,143,149,154,160,
+      0,  15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,
+     30,  31,  32,  33,  34,  35,  36,  37,  38,  39,  40,  41,  42,  44,  46,  48,
+     50,  52,  53,  56,  58,  60,  62,  65,  68,  70,  72,  76,  78,  80,  84,  86,
+     91,  94,  98, 101, 105, 109, 114, 118, 122, 127, 132, 137, 142, 148, 153, 159,
 ]
 
-# K1–K10 quantization tables; index by coefficient number 0–9
+# K1–K10 reflection coefficients (10-bit signed); index by coefficient number 0–9
 K = [
     # K1 (5-bit index, 32 entries)
-    [-125,-124,-124,-124,-123,-123,-122,-120,-119,-118,-117,-116,-115,-113,
-     -111,-109,-103, -95, -84, -72, -57, -39, -20,   0,  20,  39,  57,  72,
-       85,  95, 103, 109],
+    [-501, -498, -497, -495, -493, -491, -488, -482, -478, -474, -469, -464,
+     -459, -452, -445, -437, -412, -380, -339, -288, -227, -158,  -81,   -1,
+       80,  157,  226,  287,  337,  379,  411,  436],
     # K2 (5-bit index, 32 entries)
-    [ -82, -75, -68, -61, -52, -44, -34, -24, -14,  -4,   6,  16,  26,  36,
-       45,  54,  62,  70,  77,  83,  89,  94,  98, 102, 106, 109, 112, 114,
-      116, 118, 119, 127],
+    [-328, -303, -274, -244, -211, -175, -138,  -99,  -59,  -18,   24,   64,
+      105,  143,  180,  215,  248,  278,  306,  331,  354,  374,  392,  408,
+      422,  435,  445,  455,  463,  470,  476,  506],
     # K3 (4-bit index, 16 entries)
-    [-110, -97, -83, -70, -56, -43, -29, -16,  -2,  11,  25,  38,  52,  65,  79,  92],
+    [-441, -387, -333, -279, -225, -171, -117,  -63,   -9,   45,   98,  152,  206,  260,  314,  368],
     # K4 (4-bit index, 16 entries)
-    [ -82, -68, -54, -40, -26, -12,   1,  15,  29,  43,  57,  71,  85,  99, 113, 126],
+    [-328, -273, -217, -161, -106,  -50,    5,   61,  116,  172,  228,  283,  339,  394,  450,  506],
     # K5 (4-bit index, 16 entries)
-    [ -82, -70, -59, -47, -35, -24, -12,  -1,  11,  23,  34,  46,  57,  69,  81,  92],
+    [-328, -282, -235, -189, -142,  -96,  -50,   -3,   43,   90,  136,  182,  229,  275,  322,  368],
     # K6 (4-bit index, 16 entries)
-    [ -64, -53, -42, -31, -20,  -9,   3,  14,  25,  36,  47,  58,  69,  80,  91, 102],
+    [-256, -212, -168, -123,  -79,  -35,   10,   54,   98,  143,  187,  232,  276,  320,  365,  409],
     # K7 (4-bit index, 16 entries)
-    [ -77, -65, -53, -41, -29, -17,  -5,   7,  19,  31,  43,  55,  67,  79,  90, 102],
+    [-308, -260, -212, -164, -117,  -69,  -21,   27,   75,  122,  170,  218,  266,  314,  361,  409],
     # K8 (3-bit index, 8 entries)
-    [-64, -40, -16,   7,  31,  55,  79, 102],
+    [-256, -161,  -66,   29,  124,  219,  314,  409],
     # K9 (3-bit index, 8 entries)
-    [-64, -44, -24,  -4,  16,  37,  57,  77],
+    [-256, -176,  -96,  -15,   65,  146,  226,  307],
     # K10 (3-bit index, 8 entries)
-    [-51, -33, -15,   4,  22,  32,  59,  77],
+    [-205, -132,  -59,   14,   87,  160,  234,  307],
 ]
 
 K_BITS = [5, 5, 4, 4, 4, 4, 4, 3, 3, 3]
 
-# Voiced excitation waveform (one glottal pulse cycle)
+# Voiced excitation chirp ROM (52 entries; the address counter stops at 51)
 CHIRP = [0x00, 0x03, 0x0F, 0x28, 0x4C, 0x6C, 0x71, 0x50,
          0x25, 0x26, 0x4C, 0x44, 0x1A, 0x32, 0x3B, 0x13,
-         0x37, 0x1A, 0x25, 0x1F, 0x1D]
+         0x37, 0x1A, 0x25, 0x1F, 0x1D] + [0x00] * 31
+
+# Interpolation shift per IP count; IP 0 lands exactly on the frame target
+INTERP_SHIFT = [0, 3, 3, 3, 2, 2, 1, 1]
 
 SAMPLE_RATE    = 8000                            # Hz
-FRAME_SAMPLES  = 200                             # 25 ms per LPC frame
-INTERP_STEPS   = 8                               # sub-frames per frame
-INTERP_SAMPLES = FRAME_SAMPLES // INTERP_STEPS  # 25 samples per sub-frame
-MIN_PLAYBACK_SPEED = 0.50
-MAX_PLAYBACK_SPEED = 2.00
-playback_speed = 1.0
+MIN_CLOCK_HZ   = 4000                            # simulated LPC clock limits
+MAX_CLOCK_HZ   = 16000
+playback_clock = SAMPLE_RATE
+lpf_hz         = DEFAULT_LPF_HZ                  # output filter after the DAC
+lpf_poles      = DEFAULT_LPF_POLES
+dc_hz          = DEFAULT_DC_HZ
+
+
+def _lfsr_step_table(steps: int = 20) -> list[int]:
+    """Map each 13-bit LFSR state to its state after `steps` shifts."""
+    table = []
+    for rng in range(0x2000):
+        for _ in range(steps):
+            bit = ((rng >> 12) ^ (rng >> 3) ^ (rng >> 2) ^ rng) & 1
+            rng = ((rng << 1) | bit) & 0x1FFF
+        table.append(rng)
+    return table
+
+
+# The chip clocks its noise LFSR once per T-cycle, 20 times per sample
+_LFSR_NEXT = _lfsr_step_table()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,7 +136,9 @@ class BitReader:
         self.bit_pos  = 0
 
     def read(self, n):
-        """Extract n bits from the stream (MSB-first, with per-byte reversal)."""
+        """Extract n bits (MSB-first, with per-byte reversal); zeros past the end."""
+        if self.done:
+            return 0
         hi = _rev(self.data[self.byte_pos]) << 8
         if self.bit_pos + n > 8 and self.byte_pos + 1 < len(self.data):
             hi |= _rev(self.data[self.byte_pos + 1])
@@ -127,106 +161,146 @@ class BitReader:
 
 def synthesize(data):
     """
-    Decode a TMS5100 LPC byte array and return float32 audio at SAMPLE_RATE Hz.
-    Values are normalised to the range [-1.0, 1.0].
+    Decode a TMS5220 LPC byte array and return float32 audio at SAMPLE_RATE Hz.
+    Values are the chip's 8-bit analog output scaled to the range [-1.0, 1.0).
 
-    Implements 8-step linear parameter interpolation per frame, matching the
-    behaviour of the real TMS5100/5220 chip and MAME's emulator.  Each 25 ms
-    frame is divided into 8 sub-frames of 25 samples; energy, pitch, and all
-    K coefficients are stepped smoothly from their previous values to the new
-    frame targets rather than switching abruptly at the frame boundary.
+    Ported from MAME's tms5220 core (BSD-3-Clause). Each 25 ms frame is 8
+    interpolation periods (IP) of 25 samples, sequenced by the chip's PC and
+    subcycle counters:
+      - parameters step toward the frame target by shifts of 3,3,3,2,2,1,1 and
+        land on it at IP 0, one parameter per PC slot;
+      - interpolation is inhibited on voiced/unvoiced and silence transitions;
+      - unvoiced frames zero K5–K10;
+      - excitation is the 52-entry chirp ROM or a 13-bit LFSR at +/-64;
+      - the lattice uses 10-bit K x 14-bit multiplies with >> 9, the output is
+        wrapped to 14 bits, then clipped and truncated to the 8-bit DAC.
     """
     reader = BitReader(data)
 
-    # Lattice filter state
-    x    = [0] * 10
-    rand = 1    # 16-bit Galois LFSR for unvoiced excitation
-    pc   = 0    # pitch period counter
+    # Frame indices start in the chip's idle state after a SPEAK command
+    e_idx = 0
+    p_idx = 0
+    k_idx = [0, 0, 0, 0, 0xF, 0xF, 0xF, 0x7, 0x7, 0x7]
 
-    # Continuously interpolated parameters (float for smooth stepping)
-    e_cur = 0.0
-    p_cur = 0.0
-    k_cur = [0.0] * 10
+    # Current (interpolated) parameters
+    energy = prev_energy = pitch = 0
+    k = [0] * 10
+    zpar = True       # zero all parameters until the first frame is parsed
+    uv_zpar = True    # zero K5–K10 (unvoiced or idle)
+    old_e = True      # OLDE: previous frame was silence
+    old_p = True      # OLDP: previous frame was unvoiced
+    inhibit = True
+    pitch_zero = False
+    talk = True
+
+    # Timing counters and excitation state
+    ip, pc, subcycle = 0, 0, 1
+    pitch_count = 0
+    rng = 0x1FFF
+
+    # Lattice filter state
+    u = [0] * 10
+    x = [0] * 10
 
     samples = []
 
-    while not reader.done:
-        e_idx = reader.read(4)
+    while True:
+        if ip == 0 and pc == 12 and subcycle == 1:
+            # Parse a new frame
+            zpar = uv_zpar = False
+            e_idx = 15 if reader.done else reader.read(4)
+            if e_idx == 15:              # stop frame — finish ramping, then halt
+                talk = False
+            elif e_idx != 0:             # silence frames keep pitch and K indices
+                repeat = reader.read(1)
+                p_idx = reader.read(6)
+                uv_zpar = p_idx == 0
+                if not repeat:           # repeat frames reuse the previous K indices
+                    for i in range(4):
+                        k_idx[i] = reader.read(K_BITS[i])
+                    if p_idx != 0:       # voiced: decode K5–K10 too
+                        for i in range(4, 10):
+                            k_idx[i] = reader.read(K_BITS[i])
 
-        if e_idx == 15:          # stop frame
-            break
-
-        if e_idx == 0:           # silence frame — target energy/pitch → 0, K unchanged
-            e_tgt = 0.0
-            p_tgt = 0.0
-            k_tgt = list(k_cur)
-        else:
-            e_tgt  = float(ENERGY[e_idx])
-            repeat = reader.read(1)
-            p_idx  = reader.read(6)
-            p_tgt  = float(PERIOD[p_idx])
-
-            if repeat:           # repeat frame — reuse previous K targets
-                k_tgt = list(k_cur)
+            new_unvoiced = p_idx == 0
+            new_silence = e_idx == 0
+            inhibit = (
+                (not old_p and new_unvoiced)
+                or (old_p and not new_unvoiced)
+                or (old_e and not new_silence)
+                or (old_p and new_silence)
+            )
+        elif subcycle == 2:
+            # Interpolate one parameter per PC slot, on the B subcycle
+            shift = INTERP_SHIFT[ip]
+            hold = inhibit and ip != 0
+            if pc == 0:
+                if ip == 0:
+                    pitch_zero = False
+                step = 0 if hold else (ENERGY[e_idx] - energy) >> shift
+                energy = 0 if zpar else energy + step
+            elif pc == 1:
+                step = 0 if hold else (PERIOD[p_idx] - pitch) >> shift
+                pitch = 0 if zpar else pitch + step
             else:
-                k_tgt = list(k_cur)
-                k_tgt[0] = float(K[0][reader.read(K_BITS[0])])
-                k_tgt[1] = float(K[1][reader.read(K_BITS[1])])
-                k_tgt[2] = float(K[2][reader.read(K_BITS[2])])
-                k_tgt[3] = float(K[3][reader.read(K_BITS[3])])
-                if p_tgt != 0.0:     # voiced: decode K5–K10 too
-                    for i in range(4, 10):
-                        k_tgt[i] = float(K[i][reader.read(K_BITS[i])])
+                i = pc - 2
+                step = 0 if hold else (K[i][k_idx[i]] - k[i]) >> shift
+                k[i] = 0 if (zpar if i < 4 else uv_zpar) else k[i] + step
 
-        # Interpolation deltas — spread the transition evenly over 8 sub-frames
-        de = (e_tgt - e_cur) / INTERP_STEPS
-        dp = (p_tgt - p_cur) / INTERP_STEPS
-        dk = [(k_tgt[i] - k_cur[i]) / INTERP_STEPS for i in range(10)]
+        # Excitation source
+        if old_p:
+            exc = -64 if rng & 1 else 64
+        else:
+            exc = CHIRP[min(pitch_count, 51)]
+        rng = _LFSR_NEXT[rng]
 
-        for _ in range(INTERP_STEPS):
-            # Advance parameters by one interpolation step
-            e_cur += de
-            p_cur += dp
-            for i in range(10):
-                k_cur[i] += dk[i]
+        # 10-stage lattice filter; operands wrap to 14 bits like the chip's
+        # multiplier inputs. (energy * (exc << 6)) >> 9 == (energy * exc) >> 3.
+        y = (prev_energy * exc) >> 3
+        for i in range(9, -1, -1):
+            y -= (k[i] * (((x[i] + 16384) & 0x7FFF) - 16384)) >> 9
+            u[i] = y
+        for i in range(9, 0, -1):
+            x[i] = x[i - 1] + ((k[i - 1] * (((u[i - 1] + 16384) & 0x7FFF) - 16384)) >> 9)
+        x[0] = u[0]
+        prev_energy = energy
 
-            # Snap to integers for the filter (keeps arithmetic identical to HW)
-            energy = max(0, round(e_cur))
-            pitch  = max(0, round(p_cur))
-            k_int  = [round(v) for v in k_cur]
+        # Wrap to 14 bits, then clip and keep the top 8 bits for the DAC
+        out = ((u[0] + 16384) & 0x7FFF) - 16384
+        out = max(-2048, min(2047, out)) & ~0xF
+        samples.append(out)
 
-            for _ in range(INTERP_SAMPLES):
-                # Excitation source
-                if pitch == 0:
-                    rand = (rand >> 1) ^ (0xB800 if rand & 1 else 0)
-                    exc  = energy if (rand & 0x8000) else -energy
-                else:
-                    exc = (CHIRP[pc] * energy) >> 8 if pc < len(CHIRP) else 0
-                    pc  = (pc + 1) % pitch
+        # Advance the PC/subcycle/IP counters (25 samples per IP)
+        subcycle += 1
+        if subcycle == 2 and pc == 12:
+            if ip == 7:
+                if inhibit:
+                    pitch_zero = True
+                old_e = e_idx == 0
+                old_p = p_idx == 0
+                if not talk:
+                    break
+            subcycle = 1
+            pc = 0
+            ip = (ip + 1) & 7
+        elif subcycle == 3:
+            subcycle = 1
+            pc += 1
 
-                # 10-stage lattice filter — forward path
-                u = [0] * 11
-                u[10] = exc
-                for i in range(9, -1, -1):
-                    u[i] = u[i + 1] - ((k_int[i] * x[i]) >> 7)
-                u[0] = max(-512, min(511, u[0]))
+        pitch_count += 1
+        if pitch_count >= pitch or pitch_zero:
+            pitch_count = 0
+        pitch_count &= 0x1FF
 
-                # Lattice filter — reverse path
-                for i in range(9, 0, -1):
-                    x[i] = x[i - 1] + ((k_int[i - 1] * u[i - 1]) >> 7)
-                x[0] = u[0]
-
-                samples.append(u[0] / 512.0)
-
-    return np.array(samples, dtype=np.float32)
+    return np.array(samples, dtype=np.float32) / 2048.0
 
 
-def play(samples, block=True, speed=None):
-    """Play a float32 numpy array through the default audio output."""
-    if speed is None:
-        speed = playback_speed
-    rate = int(round(SAMPLE_RATE * speed))
-    sd.play(samples, samplerate=rate)
+def play(samples, block=True, clock_hz=None):
+    """Play raw synthesizer output at a chip clock, through any output filter."""
+    if clock_hz is None:
+        clock_hz = playback_clock
+    audio, rate = analog_output(samples, clock_hz, lpf_hz, lpf_poles, dc_hz)
+    sd.play(normalize_peak(audio), samplerate=int(round(rate)))
     if block:
         sd.wait()
 
@@ -330,14 +404,24 @@ def load_vocab_sources(paths: list[str]) -> int:
     return loaded
 
 
-def set_playback_speed(speed: float) -> None:
-    """Set playback speed/pitch multiplier used by play()."""
-    global playback_speed
-    if not MIN_PLAYBACK_SPEED <= speed <= MAX_PLAYBACK_SPEED:
+def set_playback_clock(clock_hz: float) -> None:
+    """Set the simulated LPC clock in Hz used by play()."""
+    global playback_clock
+    if not MIN_CLOCK_HZ <= clock_hz <= MAX_CLOCK_HZ:
         raise ValueError(
-            f"speed must be between {MIN_PLAYBACK_SPEED:g} and {MAX_PLAYBACK_SPEED:g}"
+            f"clock must be between {MIN_CLOCK_HZ:g} and {MAX_CLOCK_HZ:g} Hz"
         )
-    playback_speed = speed
+    playback_clock = clock_hz
+
+
+def set_output_filter(lpf=None, poles=None, dc=None) -> None:
+    """Set the output low-pass and DC blocker used by play()."""
+    global lpf_hz, lpf_poles, dc_hz
+    new_lpf = lpf_hz if lpf is None else lpf
+    new_poles = lpf_poles if poles is None else poles
+    new_dc = dc_hz if dc is None else dc
+    validate_filter(new_lpf, new_poles, new_dc)
+    lpf_hz, lpf_poles, dc_hz = new_lpf, new_poles, new_dc
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -360,11 +444,7 @@ def speak_words(words: list[str]):
         chunks.append(_silence)
 
     if chunks:
-        audio = np.concatenate(chunks)
-        peak = np.max(np.abs(audio))
-        if peak > 0:
-            audio = audio * (0.9 / peak)
-        play(audio)
+        play(np.concatenate(chunks))
 
 
 def vocab_words_matching(patterns: list[str] | None = None) -> list[str]:
@@ -399,7 +479,7 @@ def print_vocab(patterns: list[str] | None = None):
     print(f"\n  {len(words)} words{suffix}")
 
 
-COMMANDS = ("list", "load", "builtin", "speed", "help", "quit", "exit", "q")
+COMMANDS = ("list", "load", "builtin", "clock", "lpf", "dc", "help", "quit", "exit", "q")
 
 
 def _word_completions(text: str) -> list[str]:
@@ -449,7 +529,7 @@ def install_completion() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 BANNER = """\
-TMS5100 LPC Speech Synthesizer
+TMS5220 LPC Speech Synthesizer
 Type words to speak, 'list' to see vocabulary, 'load <file.cpp>' to use an external vocabulary.
 Default vocabulary: built-in TI VM61002 numbers only.
 """
@@ -460,7 +540,9 @@ Commands:
   list [PATTERN ...]  list words, optionally filtered with wildcards (e.g. RE*)
   load <file.cpp>     replace vocabulary with a .cpp vocabulary file
   builtin             reset to built-in words only
-  speed <factor>      set playback speed/pitch, e.g. 0.97 or 1.03
+  clock <hz>          set simulated LPC clock, e.g. 7760 or 8240 (default 8000)
+  lpf <hz> [poles]    set output low-pass, e.g. lpf 3000 2  (0 = off)
+  dc <hz>             set output DC blocker cutoff  (0 = off)
   help                show this message
   quit / exit / q     exit
 """
@@ -503,14 +585,35 @@ def run_interactive():
         elif cmd == "builtin":
             n = use_builtin_vocab()
             print(f"  reset to {n} built-in word(s)")
-        elif cmd == "speed":
+        elif cmd == "clock":
             if len(parts) != 2:
-                print(f"  current speed: {playback_speed:g}")
-                print("  usage: speed <factor>  (example: speed 1.03)")
+                print(f"  current clock: {playback_clock:g} Hz")
+                print("  usage: clock <hz>  (example: clock 8240)")
             else:
                 try:
-                    set_playback_speed(float(parts[1]))
-                    print(f"  speed set to {playback_speed:g}")
+                    set_playback_clock(float(parts[1]))
+                    print(f"  clock set to {playback_clock:g} Hz")
+                except ValueError as e:
+                    print(f"  {e}")
+        elif cmd == "lpf":
+            if len(parts) not in (2, 3):
+                print(f"  current filter: {describe_filter(lpf_hz, lpf_poles, dc_hz)}")
+                print("  usage: lpf <hz> [poles]  (example: lpf 3000 2; lpf 0 for off)")
+            else:
+                try:
+                    poles = int(parts[2]) if len(parts) == 3 else None
+                    set_output_filter(lpf=float(parts[1]), poles=poles)
+                    print(f"  filter set to {describe_filter(lpf_hz, lpf_poles, dc_hz)}")
+                except ValueError as e:
+                    print(f"  {e}")
+        elif cmd == "dc":
+            if len(parts) != 2:
+                print(f"  current filter: {describe_filter(lpf_hz, lpf_poles, dc_hz)}")
+                print("  usage: dc <hz>  (example: dc 30; dc 0 for off)")
+            else:
+                try:
+                    set_output_filter(dc=float(parts[1]))
+                    print(f"  filter set to {describe_filter(lpf_hz, lpf_poles, dc_hz)}")
                 except ValueError as e:
                     print(f"  {e}")
         else:
@@ -519,13 +622,14 @@ def run_interactive():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="TMS5100/TMS5220 LPC speech synthesizer with frame interpolation.",
+        description="TMS5220 LPC speech synthesizer (MAME-derived core).",
     )
     parser.add_argument(
-        "--speed",
+        "--clock",
         type=float,
-        default=1.0,
-        help="playback speed/pitch multiplier, e.g. 0.97 or 1.03",
+        default=SAMPLE_RATE,
+        metavar="HZ",
+        help=f"simulated LPC sample clock in Hz, e.g. 7760 or 8240 (default: {SAMPLE_RATE})",
     )
     parser.add_argument(
         "--load",
@@ -535,11 +639,33 @@ def main():
         metavar="PATH",
         help="replace built-ins with one or more .cpp vocabulary files",
     )
+    parser.add_argument(
+        "--lpf",
+        type=float,
+        default=DEFAULT_LPF_HZ,
+        metavar="HZ",
+        help="output low-pass cutoff in Hz, 0 = off (default: off)",
+    )
+    parser.add_argument(
+        "--poles",
+        type=int,
+        default=DEFAULT_LPF_POLES,
+        metavar="N",
+        help=f"output low-pass poles, 1-8 (default: {DEFAULT_LPF_POLES})",
+    )
+    parser.add_argument(
+        "--dc",
+        type=float,
+        default=DEFAULT_DC_HZ,
+        metavar="HZ",
+        help="output DC blocker cutoff in Hz, 0 = off (default: off)",
+    )
     parser.add_argument("words", nargs="*", help="words to speak")
     args = parser.parse_args()
 
     try:
-        set_playback_speed(args.speed)
+        set_playback_clock(args.clock)
+        set_output_filter(args.lpf, args.poles, args.dc)
     except ValueError as e:
         parser.error(str(e))
 
@@ -557,8 +683,9 @@ def main():
     else:
         if not args.load:
             print(f"Using {len(vocab)} built-in word(s)")
-        if playback_speed != 1.0:
-            print(f"Playback speed: {playback_speed:g}")
+        if playback_clock != SAMPLE_RATE:
+            print(f"Playback clock: {playback_clock:g} Hz")
+        print(f"Output filter: {describe_filter(lpf_hz, lpf_poles, dc_hz)}")
         run_interactive()
 
 
