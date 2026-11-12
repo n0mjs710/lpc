@@ -7,3 +7,5 @@ venv/
 
 vocab_pcm/
 *.wav
+audit_hp/
+listen_flags.json

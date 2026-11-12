@@ -17,7 +17,6 @@ from pathlib import Path
 from lpc_vocab import (
     VocabEntry,
     c_identifier_fragment,
-    clean_vocab_name,
     parse_asm_file,
     parse_cpp_file,
     source_suffix,
@@ -28,7 +27,7 @@ SUPPORTED_SUFFIXES = {".asm", ".cpp"}
 
 
 def normalized_lookup_name(name: str) -> str:
-    return c_identifier_fragment(clean_vocab_name(name))
+    return c_identifier_fragment(name)
 
 
 def with_name(entry: VocabEntry, name: str) -> VocabEntry:
