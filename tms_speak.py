@@ -8,9 +8,9 @@ Usage:
   python tms_speak.py ZERO ONE TWO                      # speak words
   python tms_speak.py --clock 8240 ONE TWO              # slightly higher pitch
   python tms_speak.py --dc 30 --lpf 4500 ONE            # with the output stage model
-  python tms_speak.py --load Vocab_FF800.cpp WFIVE
-  python tms_speak.py --load Vocab_FF800.cpp --out phrase.wav WARNING STOP
-  python tms_speak.py --load Vocab_FF800.cpp --render vocab_pcm        # all words
+  python tms_speak.py --load sources/cpp/Vocab_FF800.cpp WFIVE
+  python tms_speak.py --load sources/cpp/Vocab_FF800.cpp --out phrase.wav WARNING STOP
+  python tms_speak.py --load sources/cpp/Vocab_FF800.cpp --render vocab_pcm        # all words
   python tms_speak.py --render out --rate 48000 --dc 30 --lpf 4500 ONE TWO
 """
 

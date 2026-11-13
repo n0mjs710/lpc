@@ -14,7 +14,7 @@ Every candidate word ends up in one bucket:
   NEW        no name or data match -> audit as a new word
 
 Usage:
-  python compare_vocab.py Vocab_HP27201A.cpp --ref Vocab_Master.cpp --out-dir audit_hp
+  python compare_vocab.py sources/cpp/other/Vocab_HP27201A.cpp --ref Vocab_Master.cpp --out-dir audit_hp
 """
 
 from __future__ import annotations

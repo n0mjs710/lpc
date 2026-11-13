@@ -79,8 +79,8 @@ python tms_speak.py                                   # interactive
 python tms_speak.py ZERO ONE TWO
 python tms_speak.py --clock 8240 ZERO ONE
 python tms_speak.py --dc 30 --lpf 4500 ZERO ONE
-python tms_speak.py --load Vocab_FF800.cpp WFIVE
-python tms_speak.py --load Vocab_FF800.cpp list 'RE*'
+python tms_speak.py --load sources/cpp/Vocab_FF800.cpp WFIVE
+python tms_speak.py --load sources/cpp/Vocab_FF800.cpp list 'RE*'
 ```
 
 Instead of playing, it can write 16-bit mono WAV files:
@@ -95,12 +95,12 @@ clock is resampled so the WAV rate stays fixed. `--gap-ms` (default 60) sets the
 silence between words, and `--amplitude-scale` scales the output.
 
 ```sh
-python tms_speak.py --load Vocab_FF800.cpp --out warning.wav WARNING STOP
-python tms_speak.py --load Vocab_FF800.cpp --out callsign.wav --gap-ms 90 --dc 30 --lpf 4500 THISIS WFIVE
-python tms_speak.py --load Vocab_FF800.cpp --render vocab_pcm
-python tms_speak.py --load Vocab_FF800.cpp --render vocab_pcm_fast --clock 8240
-python tms_speak.py --load Vocab_FF800.cpp --render vocab_pcm_hifi --rate 48000 --dc 30 --lpf 4500
-python tms_speak.py --load Vocab_FF800.cpp --render clips WARNING STOP
+python tms_speak.py --load sources/cpp/Vocab_FF800.cpp --out warning.wav WARNING STOP
+python tms_speak.py --load sources/cpp/Vocab_FF800.cpp --out callsign.wav --gap-ms 90 --dc 30 --lpf 4500 THISIS WFIVE
+python tms_speak.py --load sources/cpp/Vocab_FF800.cpp --render vocab_pcm
+python tms_speak.py --load sources/cpp/Vocab_FF800.cpp --render vocab_pcm_fast --clock 8240
+python tms_speak.py --load sources/cpp/Vocab_FF800.cpp --render vocab_pcm_hifi --rate 48000 --dc 30 --lpf 4500
+python tms_speak.py --load sources/cpp/Vocab_FF800.cpp --render clips WARNING STOP
 ```
 
 Interactive commands: words to speak, `list [PATTERN ...]` (shell-style
@@ -133,7 +133,7 @@ are written to the current directory; use `--out-dir DIR` or a path in `-o` to
 write elsewhere.
 
 ```sh
-python build_vocab.py sources/asm/ff800 -o Vocab_FF800.cpp
+python build_vocab.py sources/asm/ff800 -o sources/cpp/Vocab_FF800.cpp
 python build_vocab.py sources/asm/ff800 sources/cpp/talkie/Vocab_US_Large.cpp sources/cpp/talkie/Vocab_US_Clock.cpp -o Vocab_Merged.cpp --duplicates first --sort
 ```
 
@@ -195,7 +195,7 @@ Other files:
 
 - `sources/asm/ff800/`: FF-800 ASM files, prefixed `FF800_`.
 - `sources/cpp/talkie/`: Talkie `.cpp` vocabularies.
-- `Vocab_FF800.cpp`: generated from `sources/asm/ff800/`.
+- `sources/cpp/Vocab_FF800.cpp`: generated from `sources/asm/ff800/`.
 
 The speak and render tools use the built-in words only when no vocabulary is
 loaded. `--load` or interactive `load <file.cpp>` replaces the built-ins.

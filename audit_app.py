@@ -3,8 +3,8 @@
 Interactive vocabulary audit: listen to candidate words next to the closest
 master word, decide what to do with each, and export the approved words.
 
-  python compare_vocab.py Vocab_HP27201A.cpp --out-dir audit_hp     # once
-  python audit_app.py Vocab_HP27201A.cpp --audit-dir audit_hp       # then browse
+  python compare_vocab.py sources/cpp/other/Vocab_HP27201A.cpp --out-dir audit_hp     # once
+  python audit_app.py sources/cpp/other/Vocab_HP27201A.cpp --audit-dir audit_hp       # then browse
 
 Decisions are saved to <audit-dir>/decisions.json after every click, so you can
 stop and resume. Export writes the approved words to a .cpp vocabulary.
